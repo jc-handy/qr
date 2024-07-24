@@ -38,7 +38,13 @@ Create a test QR code.
 qr This is a test!
 ```
 
-This will use Unicode block characters to output the QR code directly to standard output. It should look like this:
+This will use Unicode block characters to output the QR code directly to standard output. The aspect ratio will depend on the font your terminal is using, but it ought to be close enough to square that QR readers will have no trouble with it. It should look something like this:
+![textual QR code for "This is a test!"](docs/assets/text-output.png)
 
-
+Create a test QR code as a PNG file.
+```shell
+qr --format png --file testing.png --scale 4 This is a test!
 ```
+
+That will create a small file called testing.png scaled by a factor of 4 (smaller that the default scaling factor of 16). This image will be perfectly square and suitable for display in the corner of a web page, for instance.
+![PNG image of our test QR code](docs/assets/png-output.png)
