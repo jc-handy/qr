@@ -1,0 +1,35 @@
+#!/bin/bash
+
+#
+# This little script makes running commands installed in Python virtual
+# environments as easy as running any other command.
+# 
+# Somewhere on your PATH, create a symlink to this script with the same name
+# as the command you want to run in this venv. It will will source the
+# bin/activate script (to activate the venv), run the command with whatever
+# arguments you've given it, and then deactivate the venv.
+#
+# Example:
+#   cd ~/venvs/this_project
+#   ln -s "$PWD/runner" ~/bin/this_project
+#
+# If there's more than one command under that venv, crate more than one
+# symlink.
+#
+# Finally, enter lotus position and breath deeply. Your life is now perfect.
+# The symlinked command(s) in your ~/bin directory will now be found on your
+# PATH and will run the real command in the proper Python virtual environment
+# for you.
+#
+
+# Get name of command to run.
+cmd=$(basename "$0")
+
+# Get the virtualenv directory.
+V=$(dirname "$(readlink -f "$0")")
+
+# Initialize the virtual environment.
+source "$V/bin/activate"
+
+# Run the command.
+"$V/$cmd" "$@"
