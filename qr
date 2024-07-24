@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+
+# The WIFI ABNF below is from section 7 of the WPA3 specification version 3.3.
+# https://www.google.com/search?q=wpa3+specification+site%3Awww.wi-fi.org
+# 
+# WIFI-qr = “WIFI:” [type “;”] [trdisable “;”] ssid “;” [hidden “;”] [id “;”] [password “;”] [publickey “;”] “;”
+# type = “T:” *(unreserved) ; security type
+# trdisable = “R:” *(HEXDIG) ; Transition Disable value
+# ssid = “S:” *(printable / pct-encoded) ; SSID of the network
+# hidden = “H:true” ; when present, indicates a hidden (stealth) SSID is used
+# id = “I:” *(printable / pct-encoded) ; UTF-8 encoded password identifier, present if the password
+# has an SAE password identifier
+# password = “P:” *(printable / pct-encoded) ; password, present for password-based authentication
+# public-key = “K:” *PKCHAR ; DER of ASN.1 SubjectPublicKeyInfo in compressed form and encoded in
+# “base64” as per [6], present when the network supports SAE-PK, else absent
+# printable = %x20-3a / %x3c-7e ; semi-colon excluded
+# PKCHAR = ALPHA / DIGIT / %x2b / %x2f / %x3d
+
+import argparse,os,re,sys,urllib.request,urllib.parse,urllib.error
+import english
+from debug import DebugChannel
+from handy import die,getch
+try:
+  import pyqrcode as qr
+except ImportError:
+  die('Failed to import pyqrcode module. Consider running "pip install pypng pyqrcode".')
+
+dc=DebugChannel(False)
+
+formats=('text','show','png','terminal')
+rgba1=re.compile(r'(?P<r>[0-9A-Fa-f])(?P<g>[0-9A-Fa-f])(?P<b>[0-9A-Fa-f])(?P<a>[0-9A-Fa-f])?')
+rgba2=re.compile(r'(?P<r>[0-9A-Fa-f]{2})(?P<g>[0-9A-Fa-f]{2})(?P<b>[0-9A-Fa-f]{2})(?P<a>[0-9A-Fa-f]{2})?')
+
+def get_color_tuple(color):
+  "Return an (R,G,B,A) tuple from the string value of color."
+
+  if len(color) in (3,4):
+    m=rgba1.match(color)
+    if m:
+      c=m.groupdict()
+      if c['a']==None:
+        c.a='f'
+      for x in c:
+        c[x]=c[x]+c[x]
+      return tuple([int(c[x],16) for x in 'rgba'])
+    elif len(color) in (6,8):
+      m=rgba2.match(color)
+      if m:
+        c=m.groupdict()
+        if c.a==None:
+          c.a='ff'
+        return tuple([int(c[x],16) for x in 'rgba'])
+  raise ValueError("Bad RGB[A] value: %r"%(color,))
+
+# Handle command line stuff.
+ap=argparse.ArgumentParser(
+  add_help=False,
+  formatter_class=argparse.RawDescriptionHelpFormatter,
+  epilog="""
+Create or output the QR code containing the text on the command line.
+
+Output Formats:
+    text: This is the default output format and writes Unicode block
+          characters to the terminal. This is similar to the "terminal" output
+          format, but about half the size.
+
+    show: Creates a temporary PNG file and opens it in the default image
+          viewer.
+
+    png: Create a PNG file named according to the text on the command line if
+         no --filename option is given.
+
+    terminal: Writes a big "██" block (2 characters) and spaces for light and
+              dark pixes to standard output.
+"""
+)
+ap.add_argument('--file',action='store',default=None,help="""Write the QR code to this file. If it has no file extension, append ".png".""")
+ap.add_argument('--force',action='store_true',default=False,help="""Overwrite the output file if it exists. No warning will be given.""")
+ap.add_argument('--format',metavar='FMT',default=formats[0],choices=formats,help="""Output the QR code in this format. Choices are %s. Default is %s."""%(english.join(formats,'or'),formats[0]))
+ap.add_argument('--scale',metavar='N',default=16,type=int,help="""Scale the qr code by this ammount. (default=%(default)s)""")
+ap.add_argument('--margin',metavar='N',default=2,type=int,help="""Surround the QR code with this many "units" of background color. The QR standard is 4, but this program's default is %(default)s because that's really big.""")
+ap.add_argument('--foreground',metavar='RGBA',action='store',default='000f',help="""RGBA (or RRGGBBAA) foreground color, which is normally %(default)s.""")
+ap.add_argument('--background',metavar='RGBA',action='store',default='ffff',help="""RGBA (or RRGGBBAA) background color, which is normally %(default)s.""")
+ap.add_argument('--wifi',action='store_true',help="""Create a WiFi QR with the given SSID, password, and security type (which defaults to "WPA2"). So rather than freeform text arguments, the command line arguments must be the SSID, the password, and (optionally) the security type.""")
+ap.add_argument('--debug',action='store_true',help="""Show some internal values before generating the QR image.""")
+ap.add_argument('--help','-h',action='help',help="Show this help message and exit.")
+ap.add_argument('text',metavar='WORD',nargs='+',action='append',help="""This is the text that will be encoded into the QR code.""")
+opt=ap.parse_args()
+
+dc.enable(opt.debug)
+
+if dc:
+  dc('Raw color options:')
+  dc('  foreground: %s'%(opt.foreground,))
+  dc('  background: %s'%(opt.background,))
+
+# Cook some option values.
+opt.foreground=get_color_tuple(opt.foreground)
+opt.background=get_color_tuple(opt.background)
+dc(f"opt.text={opt.text!r}")
+if type(opt.text[0])==list:
+  opt.text=opt.text[0]
+dc(f"opt.text={opt.text!r}")
+if opt.wifi:
+  # Format our command line arguments for WiFi authentication.
+  if len(opt.text) not in (2,3):
+    die(f"When using --wifi mode, there must be either two or three (not {len(opt.text)}) command line arguments: SSID, password, and (optionally) security type (which defaults to WPA2.")
+  ssid=opt.text.pop(0)
+  password=opt.text.pop(0)
+  if opt.text:
+    security=opt.text.pop(0)
+  else:
+    security='WPA2'
+  opt.text=f"WIFI:S:{ssid};T:{security};P:{password};;"
+else:
+  opt.text=' '.join(opt.text)
+
+# Make sure we have a filename if we need a filename.
+if opt.format in ('png'):
+  if not opt.file:
+    if any([x in opt.text for x in '.:/']):
+      opt.file=urllib.parse.quote_plus(opt.text,'')
+    else:
+      opt.file=''.join(opt.text.split())
+    #print 'D: opt.file=%r'%(opt.file,)
+  ext='.'+opt.format
+  if not opt.file.endswith(ext):
+    if opt.file.endswith('.'):
+      opt.file+=opt.format
+    else:
+      opt.file+=ext
+  if os.path.exists(opt.file) and not opt.force:
+    if getch(f"File \"{opt.file}\" already exists. Overwrite? ",echo=True).lower()!='y':
+      print('Quitting.')
+      sys.exit(0)
+
+if dc:
+  dc('Options:')
+  dc('  file: %r'%(opt.file,))
+  dc('  format: %r'%(opt.format,))
+  dc('  scale: %r'%(opt.scale,))
+  dc('  margin: %r'%(opt.margin,))
+  dc('  foreground: %s'%(','.join(['%02x'%x for x in opt.foreground])))
+  dc('  background: %s'%(','.join(['%02x'%x for x in opt.background])))
+  dc('  wifi: %r'%(opt.wifi,))
+  dc('  text: %r'%(opt.text,))
+
+# Do the QR stuff.
+code=qr.create(opt.text)
+if opt.format=='png':
+  code.png(opt.file,scale=opt.scale,module_color=opt.foreground,background=opt.background,quiet_zone=opt.margin)
+elif opt.format=='show':
+  code.show(scale=opt.scale,module_color=opt.foreground,background=opt.background,quiet_zone=opt.margin)
+elif opt.format=='terminal':
+  print(code.terminal())
+elif opt.format=='text':
+  blocks=' ▀▄█'
+  grid=code.text(quiet_zone=opt.margin).split()
+  if len(grid)%2:
+    # We need an even number of rows.
+    grid.append(grid[-1])
+  sys.stdout.write('\x1b[7m') # Invert foreground and background.
+  for y in range(0,len(grid),2):
+    print(''.join([
+      blocks[(grid[y][x]=='1')+(grid[y+1][x]=='1')*2]
+        for x in range(len(grid[y]))
+    ]))
+  sys.stdout.write('\x1b[0m') # Normal text.
