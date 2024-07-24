@@ -35,16 +35,32 @@ That's it. You can now (possibly after running `rehash` from your current shell)
 
 Create a test QR code.
 ```shell
-qr This is a test!
+qr 'This is a test!'
 ```
 
 This will use Unicode block characters to output the QR code directly to standard output. The aspect ratio will depend on the font your terminal is using, but it ought to be close enough to square that QR readers will have no trouble with it. It should look something like this:
+
 ![textual QR code for "This is a test!"](docs/assets/text-output.png)
 
-Create a test QR code as a PNG file.
+Create a test QR code as a PNG file. 'The text generally needn't be quoted as below, but the `!` character can be problematic in some shell configurations if it's not single-quoted.)
 ```shell
-qr --format png --file testing.png --scale 4 This is a test!
+qr --format png --file testing.png --scale 4 'This is a test!'
 ```
 
 That will create a small file called testing.png scaled by a factor of 4 (smaller that the default scaling factor of 16). This image will be perfectly square and suitable for display in the corner of a web page, for instance.
+
 ![PNG image of our test QR code](docs/assets/png-output.png)
+
+One last handly little step-saver is to generate the PNG file and show it in your default image viewer. This is often convenient if all you want is to copy the image to your clipboard.
+
+```shell
+qr --format show --scale 4 Any number of command line arguments can be accepted as the input to be QR-encoded.
+```
+
+The `show` format
+1. creates the QR code in a temporary PNG file,
+2. opens it with your system's default application for that file type,
+3. deletes the PNG file,
+4. and terminates.
+
+The presumption is you can copy the image from the default PNG-opener on your system and paste it into some other document.
